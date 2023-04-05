@@ -16,6 +16,7 @@ app = Dash(
     external_stylesheets=external_stylesheets,
     suppress_callback_exceptions=True
 )
+
 server = app.server
 
 # App run config settings
@@ -48,30 +49,35 @@ style_header = {
     'fontWeight': 'bold'
 }
 
-# Get Pyrfume-Data inventory markdown, list of archives, & master molecule list
+# Get Pyrfume-Data inventory markdown
 inventory = requests.get('https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/tools/inventory.md').text    
 inventory = inventory.replace('nbsp;', 'nbsp')
 
-# Faster to read from file when in debug mode
-if app_run_config['debug']:
-    molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
-    archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
-else:
-    archives = pyrfume.list_archives()
-    # Skip over archives that are not for sole datasources
-    archives = [arc for arc in archives if arc not in ['mordred', 'morgan', 'molecules', 'embedding', 'prediction_targets', 'tools']]
+# Get pre-created list of archives & master molecule list
+molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
+archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
 
-    print('Generating master molecule list...')
-    all_molecules = {}
-    for arc in archives:
-        try:
-            all_molecules[arc] = pyrfume.load_data(f'{arc}/molecules.csv')
-        except:
-            print(f'No molecules.csv found for {arc}')
-    molecule_master_list = pd.concat(all_molecules, axis=0).reset_index().rename(columns={'level_0': 'Archive'})
-    molecule_master_list = molecule_master_list.set_index('CID').sort_index().drop_duplicates()
-    molecule_master_list = molecule_master_list[['MolecularWeight', 'IsomericSMILES', 'IUPACName', 'name', 'Archive']].reset_index()
-    print('Master molecule list complete')
+# Uncomment below to have option to create master molecule list and archive list from scratch
+# # Faster to read from file when in debug mode
+# if app_run_config['debug']:
+#     molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
+#     archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
+# else:
+#     archives = pyrfume.list_archives()
+#     # Skip over archives that are not for sole datasources
+#     archives = [arc for arc in archives if arc not in ['mordred', 'morgan', 'molecules', 'embedding', 'prediction_targets', 'tools']]
+
+#     print('Generating master molecule list...')
+#     all_molecules = {}
+#     for arc in archives:
+#         try:
+#             all_molecules[arc] = pyrfume.load_data(f'{arc}/molecules.csv')
+#         except:
+#             print(f'No molecules.csv found for {arc}')
+#     molecule_master_list = pd.concat(all_molecules, axis=0).reset_index().rename(columns={'level_0': 'Archive'})
+#     molecule_master_list = molecule_master_list.set_index('CID').sort_index().drop_duplicates()
+#     molecule_master_list = molecule_master_list[['MolecularWeight', 'IsomericSMILES', 'IUPACName', 'name', 'Archive']].reset_index()
+#     print('Master molecule list complete')
 
 # Header layout
 header = dbc.Container([
