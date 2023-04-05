@@ -21,7 +21,7 @@ server = app.server
 
 # App run config settings
 app_run_config = {
-    'debug': False,
+    'debug': True,
     'host': '127.0.0.1',
     'port': 8050
 }
@@ -234,7 +234,7 @@ def tab_header(heading='Tab Heading'):
 # Repo inventory visualization
 tab1 = dbc.Container([
     # Header
-    tab_header('The Pyrfume-Data Repository Contents'),
+    tab_header('Testing The Pyrfume-Data Repository Contents'),
     # Display inventory badges
     dbc.Container(
         dcc.Markdown(
