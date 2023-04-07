@@ -556,7 +556,7 @@ def display_file(f, arc):
     
     if ext in ['csv', 'xls', 'xlsx']:
         df = pyrfume.load_data(f'{arc}/{f}').reset_index()
-        if f.split('.')[0] == 'molecules':
+        if (f.split('.')[0] == 'molecules') & (df.shape[0]<50):
             content = table_with_tooltips(df)
         else:
             content = dash_table.DataTable(
