@@ -103,12 +103,10 @@ header = dbc.Container([
         )
         ],
         align='center',
-        # class_name='g-0'
         class_name='g-0 ms-auto flex-nowrap text-nowrap mt-3 mt-md-0'
     )   
     ], 
-    fluid=True, 
-    # class_name='g-0 ms-auto flex-nowrap mt-3 mt-md-0',
+    fluid=True,
     style={
         'padding': '5px 0px 5px 0px',
     }
@@ -234,7 +232,7 @@ def tab_header(heading='Tab Heading'):
 # Repo inventory visualization
 tab1 = dbc.Container([
     # Header
-    tab_header('Testing The Pyrfume-Data Repository Contents'),
+    tab_header('The Pyrfume-Data Repository Contents'),
     # Display inventory badges
     dbc.Container(
         dcc.Markdown(
@@ -489,7 +487,10 @@ def select_archive(value):
     if value is None:
         raise PreventUpdate
     
-    manifest = pyrfume.load_manifest(value)
+    try:
+        manifest = pyrfume.load_manifest(value)
+    except:
+        return f'**No manifest found for {value}:**<br><br>', [], None
     
     # Convert manifest contents to Markdown & get list of files in archive
     md = f'**Manifest for {value}:**<br><br>'
@@ -508,7 +509,37 @@ def select_archive(value):
             files += [k for k in d.keys() if '*' not in k]
 
     opt = [{'label': f, 'value': f} for f in files]
-    return md, opt, 'molecules.csv'
+
+    if 'molecules.csv' in manifest['processed']:
+        initial_file = 'molecules.csv'
+    elif 'stimuli.csv' in manifest['processed']:
+        initial_file = 'stimuli.csv'
+    else:
+        initial_file = None
+
+    return md, opt, initial_file
+
+
+# Create tables with tooltips that show molecule structure on hover
+def table_with_tooltips(df):
+    table = [
+        dbc.Table(
+            # Header
+            [html.Thead([html.Tr([html.Th(col) for col in df.columns])], style={'color': colors['pyrfume_light_yellow'], 'backgroundColor': colors['pyrfume_light_blue']})] +
+            # Body
+            [html.Tbody([html.Tr([html.Td(df.iloc[i][col]) for col in df.columns], id=f'row_{i}') for i in range(df.shape[0])])],
+            striped=True,
+            hover=True
+        )
+    ]
+    for i in range(df.shape[0]):
+        smiles = df.iloc[i]['IsomericSMILES']
+        im = pyrfume.odorants.smiles_to_image(smiles, png=False)
+        bbox = ImageOps.invert(im).getbbox()
+        im = html.Img(src=im.crop(bbox), style={'width': '75%', 'height': '75%'}) 
+        table += [dbc.Tooltip(im, target=f'row_{i}', placement='top', style={'max-width': '100%'})]
+
+    return table
 
 
 # Display an archive file's contents
@@ -525,14 +556,16 @@ def display_file(f, arc):
     
     if ext in ['csv', 'xls', 'xlsx']:
         df = pyrfume.load_data(f'{arc}/{f}').reset_index()
-
-        content = dash_table.DataTable(
-            df.to_dict('records'),
-            id='table',
-            style_header=style_header,
-            style_table=style_table,
-            style_cell=style_cell
-        )
+        if f.split('.')[0] == 'molecules':
+            content = table_with_tooltips(df)
+        else:
+            content = dash_table.DataTable(
+                df.to_dict('records'),
+                id='table',
+                style_header=style_header,
+                style_table=style_table,
+                style_cell=style_cell
+            )
     elif ext in ['py', 'md', 'txt']:
         text = requests.get(f'https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/{arc}/{f}').text
         if ext in ['py', 'md']:
@@ -797,13 +830,15 @@ def cross_archive_search(archive_list):
         style={'width': '100%'}
     )
 
-    tbl = dash_table.DataTable(
-            df.to_dict('records'),
-            id='multi-archive-search-table',
-            style_header=style_header,
-            style_table=style_table,
-            style_cell=style_cell
-        )
+    tbl = table_with_tooltips(df)
+
+    # tbl = dash_table.DataTable(
+    #         df.to_dict('records'),
+    #         id='multi-archive-search-table',
+    #         style_header=style_header,
+    #         style_table=style_table,
+    #         style_cell=style_cell
+    #     )
     return tbl, stats, archive_list
 
 
