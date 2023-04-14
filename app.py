@@ -6,6 +6,8 @@ import pyrfume
 import requests
 import pandas as pd
 from PIL import Image, ImageOps
+import base64
+from io import BytesIO
 
 # Create Dash instance
 external_stylesheets = [dbc.themes.BOOTSTRAP]
@@ -49,13 +51,42 @@ style_header = {
     'fontWeight': 'bold'
 }
 
-# Get Pyrfume-Data inventory markdown
-inventory = requests.get('https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/tools/inventory.md').text    
-inventory = inventory.replace('nbsp;', 'nbsp')
+# Generate master molecule list using molecules.csv and usage.csv from pyrfume-data/molecules
+# molecule_master_list = pyrfume.load_data('molecules/molecules.csv')
+molecule_master_list = pd.read_csv('static/molecules.csv', index_col=0)
 
-# Get pre-created list of archives & master molecule list
-molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
-archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
+# usage = pyrfume.load_data('molecules/usage.csv')
+usage = pd.read_csv('static/usage.csv', index_col=0)
+
+# Archives that are inlcuded in pyrfume-data/molecules/molecules.csv
+archives = usage.columns.to_list()
+
+# Reshape usage to added "Archive" column to master molecule list
+usage = usage.melt(ignore_index=False, var_name='Archive')
+usage = usage[usage.value == 1].drop(columns='value')
+molecule_master_list = molecule_master_list.join(usage).reset_index()
+
+# Get Pyrfume-Data inventory markdown
+full_inventory = requests.get('https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/tools/inventory.md').text
+full_inventory = full_inventory.replace('nbsp;', 'nbsp')
+
+# Pare down to only include archives that contributed to pyrfume-data/molecules/molecules.csv
+inventory = ''
+for line in full_inventory.split('<br>'):
+    if any(map(line.__contains__, archives)):
+        inventory += line
+        inventory += '<br>'
+
+# Pre-generated molecule structures
+structures = pd.read_csv('static/structures.csv', index_col=0)
+
+# Function to convert base64 string to Pillow image object
+def base64_to_PIL(im):
+    return Image.open(BytesIO(base64.b64decode(im))) 
+
+# Option to get pre-created list of archives & master molecule list
+# molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
+# archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
 
 # Uncomment below to have option to create master molecule list and archive list from scratch
 # # Faster to read from file when in debug mode
@@ -83,6 +114,7 @@ archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
 header = dbc.Container([
     dbc.Row([
         dbc.Col(
+            # Pyrfume logo
             html.Img(
                 src='https://avatars3.githubusercontent.com/u/34174393?s=200&v=4',
                 style={
@@ -194,7 +226,7 @@ tabs = dbc.Container([
     dbc.Tabs(
         [dbc.Tab(label=tup[0], tab_id=tup[1]) for tup in tab_definitions],
         id='tabs',
-        active_tab='tab-1'
+        active_tab='tab-2'
     ),
     dbc.Container(
         id="content",
@@ -534,10 +566,16 @@ def table_with_tooltips(df):
     ]
     for i in range(df.shape[0]):
         smiles = df.iloc[i]['IsomericSMILES']
-        im = pyrfume.odorants.smiles_to_image(smiles, png=False)
-        bbox = ImageOps.invert(im).getbbox()
-        im = html.Img(src=im.crop(bbox), style={'width': '75%', 'height': '75%'}) 
-        table += [dbc.Tooltip(im, target=f'row_{i}', placement='top', style={'max-width': '100%'})]
+        # im = pyrfume.odorants.smiles_to_image(smiles, png=False)
+        im = base64_to_PIL(structures.loc[smiles]['Image_base64'])
+        table += [
+            dbc.Tooltip(
+                html.Img(src=im, style={'width': '75%', 'height': '75%'}) ,
+                target=f'row_{i}',
+                placement='top',
+                style={'max-width': '100%'}
+            )
+        ]
 
     return table
 
@@ -556,7 +594,7 @@ def display_file(f, arc):
     
     if ext in ['csv', 'xls', 'xlsx']:
         df = pyrfume.load_data(f'{arc}/{f}').reset_index()
-        if (f.split('.')[0] == 'molecules') & (df.shape[0]<50):
+        if (f.split('.')[0] == 'molecules') & (df.shape[0]<1000):
             content = table_with_tooltips(df)
         else:
             content = dash_table.DataTable(
