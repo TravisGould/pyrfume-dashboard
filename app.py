@@ -64,7 +64,9 @@ archives = usage.columns.to_list()
 # Reshape usage to added "Archive" column to master molecule list
 usage = usage.melt(ignore_index=False, var_name='Archive')
 usage = usage[usage.value == 1].drop(columns='value')
-molecule_master_list = molecule_master_list.join(usage).reset_index()
+molecule_master_list = molecule_master_list.join(usage)
+molecule_master_list.index = molecule_master_list.index.to_series().str.split('_').str[0].astype(int)
+molecule_master_list = molecule_master_list.sort_index().reset_index()
 
 # Get Pyrfume-Data inventory markdown
 full_inventory = requests.get('https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/tools/inventory.md').text
@@ -77,12 +79,14 @@ for line in full_inventory.split('<br>'):
         inventory += line
         inventory += '<br>'
 
-# Pre-generated molecule structures
-structures = pd.read_csv('static/structures.csv', index_col=0)
-
 # Function to convert base64 string to Pillow image object
 def base64_to_PIL(im):
     return Image.open(BytesIO(base64.b64decode(im))) 
+
+# Pre-generated molecule structures and convert base64 strings to PIL images
+structures = pd.read_csv('static/structures.csv', index_col=0)
+structures['Image'] = structures['Image_base64'].apply(lambda x: base64_to_PIL(x))
+structures.drop(columns=['Image_base64'])
 
 # Option to get pre-created list of archives & master molecule list
 # molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
@@ -226,7 +230,7 @@ tabs = dbc.Container([
     dbc.Tabs(
         [dbc.Tab(label=tup[0], tab_id=tup[1]) for tup in tab_definitions],
         id='tabs',
-        active_tab='tab-2'
+        active_tab='tab-1'
     ),
     dbc.Container(
         id="content",
@@ -566,11 +570,12 @@ def table_with_tooltips(df):
     ]
     for i in range(df.shape[0]):
         smiles = df.iloc[i]['IsomericSMILES']
-        # im = pyrfume.odorants.smiles_to_image(smiles, png=False)
-        im = base64_to_PIL(structures.loc[smiles]['Image_base64'])
         table += [
             dbc.Tooltip(
-                html.Img(src=im, style={'width': '75%', 'height': '75%'}) ,
+                html.Img(
+                    src=structures.loc[smiles]['Image'],
+                    style={'width': '100%', 'height': '100%'}
+                ) ,
                 target=f'row_{i}',
                 placement='top',
                 style={'max-width': '100%'}
