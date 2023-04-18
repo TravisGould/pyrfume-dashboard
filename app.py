@@ -952,7 +952,8 @@ def cross_archive_search(archive_list, dd_display_value):
     if isinstance(dd_display_value, list):
         return tbl, stats, dd_display_value
     elif isinstance(dd_display_value, tuple):
-        return tbl, stats, *dd_display_value
+        out = tbl, stats, *dd_display_value
+        return out
 
 
 # Use manifest tags to find molecules in common across selected archives
