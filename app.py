@@ -36,7 +36,7 @@ colors = {
     'pyrfume_light_blue': '#85ACCC'
 }
 
-# Style config for tables
+# Style config for Dash Tables
 style_table = {
     'maxHeight': 500,
     'overflowY': 'scroll'
@@ -65,6 +65,7 @@ archives = usage.columns.to_list()
 usage = usage.melt(ignore_index=False, var_name='Archive')
 usage = usage[usage.value == 1].drop(columns='value')
 molecule_master_list = molecule_master_list.join(usage)
+# Format index as integers (remove SMILES for <0 CIDs)
 molecule_master_list.index = molecule_master_list.index.to_series().str.split('_').str[0].astype(int)
 molecule_master_list = molecule_master_list.sort_index().reset_index()
 
@@ -79,6 +80,33 @@ for line in full_inventory.split('<br>'):
         inventory += line
         inventory += '<br>'
 
+# Use iventory markdown to get tags associated with each archive; use for searching archives by tag
+archive_tags = {}
+tag_classes = {}
+
+# Loop over markdown for each archive
+for md in inventory.split('<br>')[:-1]:
+    lines = md.split('(#)')
+    
+    # Extract archive name
+    archive = lines[0].split('](https')[0].strip('[!{[')
+    archive_tags[archive] = []
+    
+    # Loop to extract tags
+    for tags_line in lines[1:-1]:
+        class_ = tags_line.split('label=')[-1].split('&')[0]
+        tag = tags_line.split('message=')[-1].split('&')[0] 
+        archive_tags[archive].append(tag)
+        if class_ in tag_classes:
+            tag_classes[class_].append(tag)
+        else:
+            tag_classes[class_] = [tag]
+    
+    archive_tags[archive] = ';'.join(archive_tags[archive])
+
+tag_classes = {k: list(set(v)) for k,v in tag_classes.items()}
+archive_tags = pd.DataFrame.from_dict(archive_tags, orient='index', columns=['Tags'])
+
 # Function to convert base64 string to Pillow image object
 def base64_to_PIL(im):
     return Image.open(BytesIO(base64.b64decode(im))) 
@@ -87,32 +115,6 @@ def base64_to_PIL(im):
 structures = pd.read_csv('static/structures.csv', index_col=0)
 structures['Image'] = structures['Image_base64'].apply(lambda x: base64_to_PIL(x))
 structures.drop(columns=['Image_base64'])
-
-# Option to get pre-created list of archives & master molecule list
-# molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
-# archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
-
-# Uncomment below to have option to create master molecule list and archive list from scratch
-# # Faster to read from file when in debug mode
-# if app_run_config['debug']:
-#     molecule_master_list = pd.read_csv('static/molecule_master_list.csv')
-#     archives = pd.read_csv('static/archive_list.csv', header=None)[0].to_list()
-# else:
-#     archives = pyrfume.list_archives()
-#     # Skip over archives that are not for sole datasources
-#     archives = [arc for arc in archives if arc not in ['mordred', 'morgan', 'molecules', 'embedding', 'prediction_targets', 'tools']]
-
-#     print('Generating master molecule list...')
-#     all_molecules = {}
-#     for arc in archives:
-#         try:
-#             all_molecules[arc] = pyrfume.load_data(f'{arc}/molecules.csv')
-#         except:
-#             print(f'No molecules.csv found for {arc}')
-#     molecule_master_list = pd.concat(all_molecules, axis=0).reset_index().rename(columns={'level_0': 'Archive'})
-#     molecule_master_list = molecule_master_list.set_index('CID').sort_index().drop_duplicates()
-#     molecule_master_list = molecule_master_list[['MolecularWeight', 'IsomericSMILES', 'IUPACName', 'name', 'Archive']].reset_index()
-#     print('Master molecule list complete')
 
 # Header layout
 header = dbc.Container([
@@ -233,7 +235,23 @@ tabs = dbc.Container([
         active_tab='tab-1'
     ),
     dbc.Container(
-        id="content",
+        id='content',
+        fluid=True,
+        style={'padding': 0},
+    )
+    ],
+    fluid=True,
+    class_name='dbc'
+)
+
+ca_search_menus = dbc.Container([
+    dbc.Tabs(
+        [dbc.Tab(label=tup[0], tab_id=tup[1]) for tup in [('Tag Search', 'menu-1'), ('Manual Search', 'menu-2')]],
+        id='ca_search_menus',
+        active_tab='menu-1'
+    ),
+    dbc.Container(
+        id='ca_search_dds',
         fluid=True,
         style={'padding': 0},
     )
@@ -425,58 +443,97 @@ tab3 = dbc.Container([
     style={'padding': '0px 0px 80px 0px'}
 )
 
-# Cross-archive search
-tab4 = dbc.Container([
-    # Header
-    tab_header('Cross-Archive Search'),
-    # Archive selection dropdown menu
+# Cross-archive search tab
+# Function to generat search/reset buttons and results containers
+def cross_archive_search_container(search_button_id, reset_button_id, stats_id, results_id):
+    content = [
+        dbc.Row([
+            # Search & Reset buttons
+            dbc.Col(
+                dbc.ButtonGroup([
+                    dbc.Button(
+                    'Search',
+                    id=search_button_id,
+                    n_clicks=0,
+                    color='primary',
+                    className='me-1',
+                    outline=True
+                    ),
+                    dbc.Button(
+                        'Reset',
+                        id=reset_button_id,
+                        n_clicks=0,
+                        color='primary',
+                        className='me-1',
+                        outline=True
+                    )
+                    ]
+                ),
+                width={'size': 2}
+            ),
+            # Search results stats
+            dbc.Col(
+                id=stats_id,
+                width={'size': 10}
+            )   
+        ],
+        style={'padding': '0px 0px 10px 0px'}
+        ),
+        # Search results
+        dbc.Row(
+            html.Div(id=results_id),
+            style={'padding': '0px 0px 10px 0px'}
+        )
+    ]
+    return content
+    
+
+# Dropdown menus for tag search
+menu1 = dbc.Container([
     dbc.Row([
-        html.H6('Select at Least Two Archives:'),
+        dbc.Col([
+            html.H6(f'{tag_class[0].upper()}{tag_class[1:]}'),
+            dcc.Dropdown(
+                id=f'{tag_class}-tag-dd',
+                options=[{'label': tag, 'value': tag} for tag in tags],
+                placeholder='Any',
+                multi=True
+            )
+        ]) for tag_class, tags in tag_classes.items()
+        ],
+        style={'padding': '10px 0px 10px 0px'}
+    ),
+    *cross_archive_search_container('cross-arc-search-button-tags', 'cross-arc-reset-button-tags', 'common-mol-display-tags', 'cross-search-results-tags')
+    ],
+    fluid=True,
+    class_name='dbc'
+)
+
+# Dropdown menu for manual search
+menu2 = dbc.Container([
+    dbc.Row([
+        html.H6('Select at least two archives'),
         dcc.Dropdown(
-            id='multi-archive-dd',
+            id='manual_search-dd',
             options=[{'label': archive, 'value': archive} for archive in archives],
             placeholder='Select archives',
             multi=True
         )
         ],
-        style={'padding': '0px 0px 10px 0px'}
+        style={'padding': '10px 0px 10px 0px'}
     ),
-    # Search & Reset buttons
-    dbc.Row([
-        dbc.Col(
-            dbc.ButtonGroup([
-                dbc.Button(
-                'Search',
-                id='cross-arc-search-button',
-                n_clicks=0,
-                color='primary',
-                className='me-1',
-                outline=True
-                ),
-                dbc.Button(
-                    'Reset',
-                    id='cross-arc-reset-button',
-                    n_clicks=0,
-                    color='primary',
-                    className='me-1',
-                    outline=True
-                )
-                ]
-            ),
-            width={'size': 2}
-        ),
-        dbc.Col(
-            id='common-mol-display',
-            width={'size': 10}
-        )   
-        ],
-        style={'padding': '0px 0px 10px 0px'}
-    ),
-    # Search results
-    dbc.Row(
-        html.Div(id='cross-search-results'),
-        style={'padding': '0px 0px 10px 0px'}
-    )
+    *cross_archive_search_container('cross-arc-search-button-manual', 'cross-arc-reset-button-manual', 'common-mol-display-manual', 'cross-search-results-manual')
+    ],
+    fluid=True,
+    class_name='dbc'
+)
+
+# Main tab
+tab4 = dbc.Container([
+    # Header
+    tab_header('Cross-Archive Search'),
+    # Drop down menus
+    ca_search_menus
     ],
     fluid=True,
     class_name='dbc',
@@ -496,7 +553,7 @@ app.layout = dbc.Container([
 
 # ---- Callbacks ----
 
-# Render tab content
+# Render main tab content
 @app.callback(
     Output('content', 'children'), 
     Input('tabs', 'active_tab')
@@ -510,6 +567,18 @@ def switch_tab(at):
         return tab3
     elif at == 'tab-4':
         return tab4
+
+
+# Render cross-archive search dropdown menus
+@app.callback(
+    Output('ca_search_dds', 'children'), 
+    Input('ca_search_menus', 'active_tab')
+)
+def switch_tab(at):
+    if at == 'menu-1':
+        return menu1
+    elif at == 'menu-2':
+        return menu2
 
 
 # Select archive
@@ -581,8 +650,18 @@ def table_with_tooltips(df):
                 style={'max-width': '100%'}
             )
         ]
+    # Put Table in Div to allow overflow scrolling
+    div = html.Div(table, style={'maxHeight': 500, 'overflow': 'scroll'})
+    return div
 
-    return table
+
+# Create similarly styled tables but without tooltips
+def dbc_table(df):
+    table_header = [html.Thead([html.Tr([html.Th(col) for col in df.columns])], style={'color': colors['pyrfume_light_yellow'], 'backgroundColor': colors['pyrfume_light_blue']})]
+    table_body = [html.Tbody([html.Tr([html.Td(df.iloc[i][col]) for col in df.columns]) for i in range(df.shape[0])])]
+    table = dbc.Table(table_header + table_body, striped=True)
+    div = html.Div(table, style={'maxHeight': 500, 'overflow': 'scroll'})
+    return div
 
 
 # Display an archive file's contents
@@ -602,13 +681,7 @@ def display_file(f, arc):
         if (f.split('.')[0] == 'molecules') & (df.shape[0]<1000):
             content = table_with_tooltips(df)
         else:
-            content = dash_table.DataTable(
-                df.to_dict('records'),
-                id='table',
-                style_header=style_header,
-                style_table=style_table,
-                style_cell=style_cell
-            )
+            content = dbc_table(df)
     elif ext in ['py', 'md', 'txt']:
         text = requests.get(f'https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/{arc}/{f}').text
         if ext in ['py', 'md']:
@@ -809,12 +882,7 @@ def load_behavior(active_cell, data):
                         column_order.insert(0, 'Stimulus')
                     df = df[column_order]
 
-                    tbl = dash_table.DataTable(
-                            df.to_dict('records'),
-                            style_header=style_header,
-                            style_table=style_table,
-                            style_cell=style_cell
-                    )
+                    tbl = dbc_table(df)
                 else:
                     tbl = dbc.Alert(f'CID={cid} not in {f}', color=colors['pyrfume_light_yellow'])
                 
@@ -837,28 +905,28 @@ def load_behavior(active_cell, data):
     return content
 
 
-# Find molecules in common across selected archives
+# Manually find molecules in common across selected archives
 @app.callback(
-    Output('cross-search-results', 'children'),
-    Output('common-mol-display', 'children'),
-    Output('multi-archive-dd', 'value'),
-    Input('cross-arc-search-button', 'n_clicks'),
-    Input('cross-arc-reset-button', 'n_clicks'),
-    State('multi-archive-dd', 'value'),
+    Output('cross-search-results-manual', 'children'),
+    Output('common-mol-display-manual', 'children'),
+    Output('manual_search-dd', 'value'),
+    Input('cross-arc-search-button-manual', 'n_clicks'),
+    Input('cross-arc-reset-button-manual', 'n_clicks'),
+    State('manual_search-dd', 'value'),
     prevent_initial_call=True
 )
-def triage_cross_archive_search(n1, n2, archive_list):
+def triage_cross_archive_search_manual(n1, n2, archive_list):
     triggered_id = ctx.triggered_id
-    if triggered_id == 'cross-arc-search-button':
-        return cross_archive_search(archive_list)
-    elif triggered_id == 'cross-arc-reset-button':
-        return reset_tab_display()
+    if triggered_id == 'cross-arc-search-button-manual':
+        return cross_archive_search(archive_list, archive_list)
+    elif triggered_id == 'cross-arc-reset-button-manual':
+        return reset_tab_display([None])
+    
+def reset_tab_display(dd_reset_value):
+    return None, None, *dd_reset_value
 
-def reset_tab_display():
-    return None, None, ''
-
-def cross_archive_search(archive_list):
-    if (archive_list is None) or (len(archive_list) < 2):
+def cross_archive_search(archive_list, dd_display_value):
+    if (archive_list is None) or (len(archive_list) < 1):
         raise PreventUpdate
 
     df = molecule_master_list[molecule_master_list['Archive'].isin(archive_list)].sort_index().reset_index()
@@ -866,8 +934,13 @@ def cross_archive_search(archive_list):
     df = df[df.counts == len(archive_list)]
     df.drop('counts', axis=1, inplace=True)
 
+    if len(archive_list) == 1:
+        stats_message = f'{df.shape[0]} molecules in {archive_list[0]}'
+    else:
+        stats_message = f'{df.shape[0]} molecules in common between {*archive_list,}'
+    
     stats = dbc.Alert(
-        f'{df.shape[0]} molecules in common between {*archive_list,}',
+        stats_message,
         id='multi-archive-search-stats',
         color=colors['pyrfume_light_blue'],
         style={'width': '100%'}
@@ -875,14 +948,30 @@ def cross_archive_search(archive_list):
 
     tbl = table_with_tooltips(df)
 
-    # tbl = dash_table.DataTable(
-    #         df.to_dict('records'),
-    #         id='multi-archive-search-table',
-    #         style_header=style_header,
-    #         style_table=style_table,
-    #         style_cell=style_cell
-    #     )
-    return tbl, stats, archive_list
+    if isinstance(dd_display_value, list):
+        return tbl, stats, dd_display_value
+    elif isinstance(dd_display_value, tuple):
+        return tbl, stats, *dd_display_value
+
+
+# Use manifest tags to find molecules in common across selected archives
+@app.callback(
+    Output('cross-search-results-tags', 'children'),
+    Output('common-mol-display-tags', 'children'),
+    [Output(f'{tag_class}-tag-dd', 'value') for tag_class in tag_classes.keys()],
+    Input('cross-arc-search-button-tags', 'n_clicks'),
+    Input('cross-arc-reset-button-tags', 'n_clicks'),
+    [State(f'{tag_class}-tag-dd', 'value') for tag_class in tag_classes.keys()],
+    prevent_initial_call=True
+)
+def triage_cross_archive_search_tags(n1, n2, *tag_lists):
+    triggered_id = ctx.triggered_id
+    if triggered_id == 'cross-arc-search-button-tags':
+        search_list = [item for tup in tag_lists if tup for item in tup]
+        archive_list = archive_tags[archive_tags.Tags.str.contains(''.join([f'(?=.*{s})' for s in search_list]))].index.to_list()
+        return cross_archive_search(archive_list, tag_lists)
+    elif triggered_id == 'cross-arc-reset-button-tags':
+        return reset_tab_display([None] * len(tag_lists))
 
 
 # Run config 
