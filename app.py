@@ -922,7 +922,7 @@ def triage_cross_archive_search_manual(n1, n2, archive_list):
     elif triggered_id == 'cross-arc-reset-button-manual':
         return reset_tab_display([None])
     
-def reset_tab_display(dd_reset_value):
+def reset_tab_display(dd_reset_value: list):
     return None, None, *dd_reset_value
 
 def cross_archive_search(archive_list, dd_display_value):
