@@ -52,11 +52,11 @@ style_header = {
 }
 
 # Generate master molecule list using molecules.csv and usage.csv from pyrfume-data/molecules
-# molecule_master_list = pyrfume.load_data('molecules/molecules.csv')
-molecule_master_list = pd.read_csv('static/molecules.csv', index_col=0)
+molecule_master_list = pyrfume.load_data('molecules/molecules.csv')
+# molecule_master_list = pd.read_csv('static/molecules.csv', index_col=0)
 
-# usage = pyrfume.load_data('molecules/usage.csv')
-usage = pd.read_csv('static/usage.csv', index_col=0)
+usage = pyrfume.load_data('molecules/usage.csv')
+# usage = pd.read_csv('static/usage.csv', index_col=0)
 
 # Archives that are inlcuded in pyrfume-data/molecules/molecules.csv
 archives = usage.columns.to_list()
@@ -65,9 +65,6 @@ archives = usage.columns.to_list()
 usage = usage.melt(ignore_index=False, var_name='Archive')
 usage = usage[usage.value == 1].drop(columns='value')
 molecule_master_list = molecule_master_list.join(usage)
-# Format index as integers (remove SMILES for <0 CIDs)
-molecule_master_list.index = molecule_master_list.index.to_series().str.split('_').str[0].astype(int)
-molecule_master_list = molecule_master_list.sort_index().reset_index()
 
 # Get Pyrfume-Data inventory markdown
 full_inventory = requests.get('https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/tools/inventory.md').text
@@ -678,7 +675,12 @@ def display_file(f, arc):
     
     if ext in ['csv', 'xls', 'xlsx']:
         df = pyrfume.load_data(f'{arc}/{f}').reset_index()
-        if (f.split('.')[0] == 'molecules') & (df.shape[0]<1000):
+        # Crop to only include 1st 1000 rows of large files
+        if df.shape[0] > 1000:
+            df = df.iloc[:1000]
+        if f.split('.')[0] == 'molecules':
+            # Make sure no duplicate molecules
+            df = df.drop_duplicates()
             content = table_with_tooltips(df)
         else:
             content = dbc_table(df)
