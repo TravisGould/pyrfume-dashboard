@@ -64,7 +64,7 @@ archives = usage.columns.to_list()
 # Reshape usage to added "Archive" column to master molecule list
 usage = usage.melt(ignore_index=False, var_name='Archive')
 usage = usage[usage.value == 1].drop(columns='value')
-molecule_master_list = molecule_master_list.join(usage)
+molecule_master_list = molecule_master_list.join(usage).reset_index()
 
 # Get Pyrfume-Data inventory markdown
 full_inventory = requests.get('https://raw.githubusercontent.com/pyrfume/pyrfume-data/main/tools/inventory.md').text
@@ -101,12 +101,13 @@ for md in inventory.split('<br>')[:-1]:
     
     archive_tags[archive] = ';'.join(archive_tags[archive])
 
-tag_classes = {k: list(set(v)) for k,v in tag_classes.items()}
+tag_classes = {k: list(set(v)) for k, v in tag_classes.items()}
 archive_tags = pd.DataFrame.from_dict(archive_tags, orient='index', columns=['Tags'])
 
 # Function to convert base64 string to Pillow image object
 def base64_to_PIL(im):
-    return Image.open(BytesIO(base64.b64decode(im))) 
+    return Image.open(BytesIO(base64.b64decode(im)))
+
 
 # Pre-generated molecule structures and convert base64 strings to PIL images
 structures = pd.read_csv('static/structures.csv', index_col=0)

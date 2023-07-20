@@ -2,3 +2,6 @@
 tools/.ipynb_checkpoints/create_molecule_list-checkpoint.ipynb
 tools/.ipynb_checkpoints/Untitled-checkpoint.ipynb
 tools/.ipynb_checkpoints/generate_molecule_structures-checkpoint.ipynb
+.ipynb_checkpoints/*
+_*.ipynb
+.vscode/*
